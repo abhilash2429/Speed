@@ -1,19 +1,20 @@
 # AGENTS.md — scripts (release automation)
 
-README and operating manual for release/automation scripts. Root `AGENTS.md` still
-applies. A **User Instructions** section for humans is at the end. (See also
-`scripts/README.md` for the human-facing quick start.)
+Operating manual for release/automation scripts. Root [`AGENTS.md`](../AGENTS.md) still
+applies. Xcode project facts: [`../leanring-buddy.xcodeproj/AGENTS.md`](../leanring-buddy.xcodeproj/AGENTS.md).
 
-> Scope: release and deployment tooling only. This is **production tooling**, not a
-> convenient place for experimental helpers.
+> Scope: **production** release tooling only — not a dumping ground for experimental
+> helpers.
 
 ---
 
 ## 1. Contents
 
-- `release.sh` — the full release pipeline (build → sign → DMG → notarize → Sparkle
-  appcast → GitHub Release → push appcast).
-- `README.md` — human quick-start and one-time prerequisites for `release.sh`.
+- `release.sh` — full release pipeline (build → sign → DMG → notarize → Sparkle appcast →
+  GitHub Release → push appcast).
+
+There is no separate `scripts/README.md` in tree; this file is the guide for both agents
+and humans.
 
 ---
 
@@ -21,80 +22,78 @@ applies. A **User Instructions** section for humans is at the end. (See also
 
 Runs `set -euo pipefail` and, in order:
 
-1. Auto-detects the version + build from the latest GitHub Release (or takes them as
-   args), then confirms with a prompt before running anything.
-2. Archives the app via `xcodebuild` (scheme `leanring-buddy`).
-3. Exports a signed `.app` with the Developer ID certificate.
-4. Wraps it in a DMG with the drag-to-Applications background.
-5. Notarizes the DMG with Apple so Gatekeeper won't block it.
-6. Signs the DMG with the Sparkle EdDSA key (from Keychain).
-7. Generates/updates `appcast.xml` for Sparkle auto-updates.
-8. Creates a GitHub Release with the DMG attached.
-9. Pushes the updated `appcast.xml` to the releases repo.
+1. Auto-detects version + build from the latest GitHub Release (or takes args), then
+   prompts for confirmation.
+2. Archives via `xcodebuild` (scheme `leanring-buddy`).
+3. Exports a signed `.app` with Developer ID.
+4. Wraps a DMG (create-dmg; optional background image).
+5. Notarizes the DMG (`notarytool`).
+6. Sparkle EdDSA-signs the DMG (key in Keychain).
+7. Updates `appcast.xml`.
+8. Creates a GitHub Release with the DMG.
+9. Pushes `appcast.xml` to the releases repo.
 
 ### Key configuration (top of `release.sh`)
-- `SCHEME="leanring-buddy"` — the Xcode scheme that builds the app.
-- `APP_NAME="Macky"` — the product/artifact name used for archive, export, and DMG paths.
-- `GITHUB_REPO="julianjear/makesomething-mac-app"` — the existing releases repo the
-  appcast is pushed to; retain this identifier until a replacement repo is supplied.
-- `DMG_BACKGROUND` — optional DMG background image. If it is absent, the release uses
-  create-dmg's standard appearance.
-- Sparkle CLI tools are auto-discovered from Xcode's SPM DerivedData cache; the script
-  errors out early if they aren't present (build in Xcode once first).
 
-### Usage shapes
+- `SCHEME="leanring-buddy"`
+- `APP_NAME="Macky"`
+- `GITHUB_REPO="julianjear/makesomething-mac-app"` — existing releases destination;
+  retain until an explicit replacement is supplied
+- `DMG_BACKGROUND` — optional; absent → create-dmg defaults
+- Sparkle CLI tools are discovered from Xcode SPM DerivedData — build in Xcode once first
+
+### Usage
+
 ```bash
-./scripts/release.sh            # auto-bump: 1.5 → 1.6, build 6 → 7
+./scripts/release.sh            # auto-bump marketing + build
 ./scripts/release.sh 2.0        # set marketing version, auto-bump build
-./scripts/release.sh 2.0 10     # set both marketing version and build number
+./scripts/release.sh 2.0 10     # set both
 ```
 
 ---
 
 ## 3. Safety Rules (for agents)
 
-- **Do not run `release.sh`** unless the user explicitly asks for a release run. It signs,
-  notarizes, publishes a GitHub Release, and pushes to another repo — all hard to undo.
+- **Do not run `release.sh`** unless the user explicitly asks for a release. It signs,
+  notarizes, publishes, and pushes — hard to undo.
 - Do not modify signing, notarization, Sparkle, GitHub-release, or repo-push steps unless
   the task is specifically about release automation.
 - Preserve `set -euo pipefail`.
-- Keep paths and repo names explicit; avoid clever shell expansion for destructive
-  operations.
+- Keep paths and repo names explicit; avoid clever expansion for destructive operations.
 - Do not add commands that delete outside the repo or a known build-output directory.
-- The script retains the existing `julianjear/makesomething-mac-app` repo identifier
-  because changing the release destination requires an explicit replacement.
+- Changing `GITHUB_REPO` requires an explicit replacement destination from the user.
 
 ---
 
 ## 4. Validation
 
-- Prefer static validation: read the command flow and check that variables are quoted.
-- Check shell syntax without executing: `bash -n scripts/release.sh`.
-- **Never** perform a live release, notarization, GitHub Release, or push as a form of
-  validation.
+- Prefer static review of the command flow and quoting.
+- Syntax only: `bash -n scripts/release.sh`
+- **Never** perform a live release, notarization, GitHub Release, or push as “validation.”
 
 ---
 
 ## User Instructions
 
-For a human shipping a release. Full details are in `scripts/README.md`.
-
 ### One-time prerequisites
-1. Xcode with your **Developer ID** signing certificate installed.
-2. Homebrew tools: `brew install create-dmg gh`.
-3. GitHub CLI authenticated: `gh auth login`.
-4. Apple notarization credentials in Keychain:
+
+1. Xcode with **Developer ID** signing certificate installed.
+2. `brew install create-dmg gh`
+3. `gh auth login`
+4. Notary credentials in Keychain:
    ```bash
    xcrun notarytool store-credentials "AC_PASSWORD" \
        --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
    ```
-   (Use an app-specific password from appleid.apple.com.)
-5. Sparkle EdDSA key in Keychain (generated during initial Sparkle setup).
-6. Build the project in Xcode at least once so SPM downloads Sparkle and its CLI tools.
+   (App-specific password from appleid.apple.com.)
+5. Sparkle EdDSA key in Keychain.
+6. Build the project in Xcode at least once (SPM + Sparkle CLI tools).
 
 ### Ship it
+
 ```bash
-./scripts/release.sh          # or pass an explicit version / build
+./scripts/release.sh          # or pass explicit version / build
 ```
-The script shows the computed version, build, and previous release, then waits for a `y`
-confirmation. If the tag already exists on GitHub it exits early and tells you what to do.
+
+The script prints version/build/previous release and waits for `y`. If the tag already
+exists on GitHub it exits early.

@@ -1,15 +1,79 @@
-worker/node_modules/
-worker/.dev.vars
+# Macky — repository .gitignore
+# Covers the macOS app (Xcode/Swift), Cloudflare Worker, and local tooling.
+
+# --- macOS ---
 .DS_Store
-*.xcuserstate
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Xcode / Swift ---
+# User-specific
 xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+
+# Build products & archives (do NOT ignore project.pbxproj — it must be tracked)
 build/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.hmap
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager local artifacts
+.build/
+.swiftpm/
+
+# Keep Package.resolved tracked under the xcodeproj (already committed).
+# Do not add a blanket Package.resolved ignore.
+
+# --- Cloudflare Worker ---
+worker/node_modules/
+node_modules/
+.wrangler/
+worker/.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+worker/.dev.vars
+worker/.dev.vars.*
+!worker/.dev.vars.example
+
+# --- Env / secrets (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.p8
+*.mobileprovision
+credentials.json
+secrets/
+
+# --- Release / packaging local output ---
 releases/
+*.dmg
+appcast.xml
+
+# --- Editors / local AI / tooling ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .claude/
+.cursor/
+.playwright-mcp/
 coding-plans/
-boring.notch/
-.wrangler
-.playwright-mcp
-*.pbxproj
-.vscode
 json/
+
+# --- Obsolete paths (kept so stray checkouts stay clean) ---
+boring.notch/

@@ -50,7 +50,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		B10000052F70000500C0DE05 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		B10000052F70000500C0DE05 /* Exceptions for "MackyAgentExecutor" folder in "MackyAgentExecutor" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -73,7 +73,7 @@
 		B10000062F70000600C0DE06 /* MackyAgentExecutor */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				B10000052F70000500C0DE05 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				B10000052F70000500C0DE05 /* Exceptions for "MackyAgentExecutor" folder in "MackyAgentExecutor" target */,
 			);
 			path = MackyAgentExecutor;
 			sourceTree = "<group>";
@@ -156,28 +156,6 @@
 			productReference = 28F22CBF2F56440300A0FC59 /* Macky.app */;
 			productType = "com.apple.product-type.application";
 		};
-		B10000082F70000800C0DE08 /* MackyAgentExecutor */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B100000E2F70000E00C0DE0E /* Build configuration list for PBXNativeTarget "MackyAgentExecutor" */;
-			buildPhases = (
-				B100000A2F70000A00C0DE0A /* Sources */,
-				B10000072F70000700C0DE07 /* Frameworks */,
-				B10000092F70000900C0DE09 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				B10000062F70000600C0DE06 /* MackyAgentExecutor */,
-			);
-			name = MackyAgentExecutor;
-			packageProductDependencies = (
-			);
-			productName = MackyAgentExecutor;
-			productReference = B10000042F70000400C0DE04 /* MackyAgentExecutor.xpc */;
-			productType = "com.apple.product-type.xpc-service";
-		};
 		28F22CCB2F56440300A0FC59 /* leanring-buddyTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 28F22CE32F56440300A0FC59 /* Build configuration list for PBXNativeTarget "leanring-buddyTests" */;
@@ -200,6 +178,28 @@
 			productName = "leanring-buddyTests";
 			productReference = 28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B10000082F70000800C0DE08 /* MackyAgentExecutor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B100000E2F70000E00C0DE0E /* Build configuration list for PBXNativeTarget "MackyAgentExecutor" */;
+			buildPhases = (
+				B100000A2F70000A00C0DE0A /* Sources */,
+				B10000072F70000700C0DE07 /* Frameworks */,
+				B10000092F70000900C0DE09 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000062F70000600C0DE06 /* MackyAgentExecutor */,
+			);
+			name = MackyAgentExecutor;
+			packageProductDependencies = (
+			);
+			productName = MackyAgentExecutor;
+			productReference = B10000042F70000400C0DE04 /* MackyAgentExecutor.xpc */;
+			productType = "com.apple.product-type.xpc-service";
 		};
 /* End PBXNativeTarget section */
 
@@ -439,7 +439,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = PVD6W949VY;
+				DEVELOPMENT_TEAM = A4VQ9SQKP9;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -477,7 +477,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = PVD6W949VY;
+				DEVELOPMENT_TEAM = A4VQ9SQKP9;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -555,7 +555,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = PVD6W949VY;
+				DEVELOPMENT_TEAM = A4VQ9SQKP9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -580,7 +580,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = PVD6W949VY;
+				DEVELOPMENT_TEAM = A4VQ9SQKP9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;

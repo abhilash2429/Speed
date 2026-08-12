@@ -1,21 +1,24 @@
 # AGENTS.md — worker (Cloudflare Worker proxy)
 
-README and operating manual for the Cloudflare Worker. Root `AGENTS.md` still applies. A
-**User Instructions** section for humans is at the end.
+Operating manual for the Cloudflare Worker. Root [`AGENTS.md`](../AGENTS.md) and
+[`MACKY.md`](../MACKY.md) still apply. Swift client URLs:
+`leanring-buddy/Networking/WorkerEndpoints.swift`. App guide:
+[`../leanring-buddy/AGENTS.md`](../leanring-buddy/AGENTS.md).
 
 ---
 
 ## 1. Purpose
 
 The Worker (`realtime-proxy`) is the **network boundary** between the macOS app and
-external services. It keeps every secret out of the app bundle and exposes the routes
-used by `RealtimeClient` and `AuthManager`. The app never talks to Azure/OpenAI or
-Composio directly — it always goes through here.
+external services. It keeps every secret out of the app bundle. The app never talks to
+Azure or Composio with a vendor key.
 
-Crucially, `/realtime` is a **byte-forwarding WebSocket proxy**: the app connects to the
-Worker, the Worker proxies the socket to the realtime endpoint, and bytes flow through
-without per-message compute. This is deliberate — a persistent socket doing real work
-would hit Cloudflare's CPU-time limit; pure proxying does not.
+`/realtime` is a **byte-forwarding WebSocket proxy**: app ↔ Worker ↔ Azure realtime.
+Bytes flow without per-message compute. That is deliberate — a persistent socket doing
+real work would hit Cloudflare CPU-time limits; pure proxying does not.
+
+Default public origin (also `PUBLIC_BASE_URL` / Swift `WorkerEndpoints.baseHost`):
+`https://realtime-proxy.winky-secrets.workers.dev`.
 
 ---
 
@@ -23,141 +26,132 @@ would hit Cloudflare's CPU-time limit; pure proxying does not.
 
 | Method & path | What it does |
 |---------------|--------------|
-| `GET /realtime` | WebSocket upgrade. Proxies bytes between the Swift client and the Azure AI Foundry realtime endpoint (`…/openai/v1/realtime?model=gpt-realtime-2.1`) using `AZURE_OPENAI_API_KEY`. Both sockets are wired together and torn down as a pair. |
-| `GET /agent-config` | Requires `Authorization: Bearer <sessionToken>`. Returns the flat development-only General Agent protocol-v1 capability document and server-owned kill switch. It advertises `sol-medium`, both supported operations, optional native web search, and the five fixed local tool names. |
-| `POST /agent-response` | Requires `Authorization: Bearer <sessionToken>`. Strictly accepts one bounded protocol-v1 General Agent request with optional continuation items and matching local tool outputs. It builds a stateless Azure Responses request to deployed `gpt-5.6-sol` with medium reasoning, encrypted reasoning continuation, five server-owned strict function schemas, and optional native web search. Azure SSE is incrementally normalized to Macky protocol-v1 events; raw provider events and sensitive upstream error bodies never reach the app. |
-| `GET /composio-config` | Requires `Authorization: Bearer <sessionToken>`. Resolves the caller's session (see §5), creates a Composio Tool Router session for that session's `composioUserId`, and returns `{ url, key }`, which the Swift client wires into the realtime `session.update` as an `mcp` tool entry. No `toolkits` allowlist is sent (full catalog via search); `manage_connections` is enabled with `enable_wait_for_connections: false` so a voice turn never blocks on OAuth. 401s with no/invalid session. |
-| `POST /composio-connect` | Requires `Authorization: Bearer <sessionToken>`. Body/query `{ toolkit }`. Looks up an existing auth config for the toolkit (created in the Composio dashboard) and creates a hosted connect `link` for the session's `composioUserId`, with `callback_url` pointing at `/auth/connected` so the browser bounces back into the app after OAuth. Returns `{ toolkit, redirect_url }`. |
-| `GET /composio-connections` | Requires `Authorization: Bearer <sessionToken>`. Lists the session's `composioUserId`'s ACTIVE connected accounts. Returns `{ connected: ["gmail", …] }`. |
-| `POST /spotify-play` | Requires `Authorization: Bearer <sessionToken>`. Fast, direct "play a track by name" path. Body `{ query, uri? }`. Does SPOTIFY_SEARCH_FOR_ITEM → SPOTIFY_START_RESUME_PLAYBACK server-side in one hop for the session's `composioUserId` (via the Composio REST *execute* endpoint, not the MCP tool-router), targeting an active device when one exists and falling back to SPOTIFY_TRANSFER_PLAYBACK for an idle one. Returns `{ status:"playing", track, artist }`, or `{ needs_device:true, uri, … }` when Spotify has no awake device (the app opens Spotify locally and retries with the `uri`). Bypasses the slow model-driven MCP discovery chain that caused named-song playback to stall or silently no-op. Called by the `play_spotify_track` native tool. |
-| `GET /dictation/realtime` | Requires `Authorization: Bearer <sessionToken>` and a WebSocket upgrade. The app first sends validated local `dictation.start` config (coarse surface kind, formatting mode, and up to 100 glossary keyterms). The Worker opens the already-deployed Azure `gpt-realtime-2.1-mini` model, configures a text-only 24 kHz session with no tools or tracing, and accepts only bounded `dictation.audio` chunks plus one `dictation.commit`. It never logs transcript frames, raw AX/browser metadata, or keyterms. |
-| `POST /auth/magic-link` | Validates `{ email }`, stores a one-time token (`token → email`) in `AUTH_TOKENS` KV with a 15-minute TTL, and emails a clickable link via Resend. The link points at the https `/auth/open` endpoint (custom schemes aren't clickable in webmail). |
-| `POST /auth/verify` | Consumes a magic-link token (single-use; deleted on first success), best-effort provisions the Composio user for that email, creates a `SESSIONS` record keyed by a fresh `sessionToken` with `composioUserId = email`, and returns `{ sessionToken, composioUserId }`. This **replaces** any anonymous session/identity the app was previously using — see §5. |
-| `POST /auth/anonymous` | No auth required (this route *creates* identity). Mints a fresh no-login Composio identity (`composioUserId = "anon-<uuid>"`), provisions it, creates a `SESSIONS` record, and returns `{ sessionToken, composioUserId }` — same shape as `/auth/verify`. Called by the app on first run (or whenever it has no stored session), so connectors work with zero setup before/without email login. |
-| `GET /auth/open?token=…` | Minimal HTML bridge that bounces the browser into the app via `Macky://auth?token=…`. Validates the token shape (UUID-ish) before reflecting it into the deep link. |
-| `GET /auth/connected?toolkit=…` | The `callback_url` passed to `/composio-connect`'s link creation. Minimal HTML bridge (same pattern as `/auth/open`) that bounces the browser into the app via `Macky://connected?toolkit=…` once OAuth finishes, so the connectors grid can refresh immediately. |
+| `GET /realtime` | WebSocket upgrade. Proxies bytes to Azure Foundry realtime (`…/openai/v1/realtime?model=gpt-realtime-2.1`) using `AZURE_OPENAI_API_KEY`. Both sockets torn down as a pair. |
+| `GET /agent-config` | `Authorization: Bearer <sessionToken>`. Development-only General Agent protocol-v1 capability document + kill switch. Advertises `sol-medium`, operations `general` \| `skill-draft`, optional native web search, five fixed local tool names. |
+| `POST /agent-response` | Bearer auth. Strict protocol-v1 request → stateless Azure Responses (`gpt-5.6-sol`, medium reasoning, `store: false`, encrypted reasoning continuation, five strict function schemas, optional web search). Azure SSE normalized to Macky protocol-v1; raw provider events/errors never reach the app. |
+| `GET /composio-config` | Bearer auth. Composio Tool Router session for `composioUserId` → `{ url, key }` for realtime MCP. No toolkit allowlist (search catalog); `manage_connections` on with `enable_wait_for_connections: false`. |
+| `POST /composio-connect` | Bearer auth. Body/query `{ toolkit }`. Hosted connect `link` with `callback_url` → `/auth/connected`. Returns `{ toolkit, redirect_url }`. |
+| `GET /composio-connections` | Bearer auth. ACTIVE connected accounts → `{ connected: ["gmail", …] }`. |
+| `POST /spotify-play` | Bearer auth. Body `{ query, uri? }`. Server-side SPOTIFY_SEARCH → START_RESUME (or TRANSFER) via Composio REST execute — not MCP. Powers native `play_spotify_track`. May return `{ needs_device: true, … }`. |
+| `GET /dictation/realtime` | Bearer auth + WebSocket. App sends `dictation.start` (surface kind, mode, ≤100 keyterms); Worker opens `gpt-realtime-2.1-mini` text-only 24 kHz session (no tools/tracing). Accepts bounded `dictation.audio` + one `dictation.commit`. Never logs transcripts, AX metadata, or keyterms. |
+| `POST /auth/magic-link` | `{ email }` → one-time token in `AUTH_TOKENS` (15 min TTL) + Resend email to https `/auth/open`. |
+| `POST /auth/verify` | Consume token; provision Composio user (best-effort); create `SESSIONS` with `composioUserId = email`; return `{ sessionToken, composioUserId }`. **Replaces** prior anonymous identity (no connection migration). |
+| `POST /auth/anonymous` | Mints `composioUserId = "anon-<uuid>"` + `SESSIONS`; same response shape as verify. First-run / no-session bootstrap. |
+| `GET /auth/open?token=…` | HTML bridge → `Macky://auth?token=…`. |
+| `GET /auth/connected?toolkit=…` | HTML bridge → `Macky://connected?toolkit=…`. |
+
+Legacy Durable Object classes may still exist in `wrangler.toml` for compatibility; they are
+**not** part of the product router above. Do not build new features on them.
 
 ---
 
 ## 3. Files
 
-- `src/index.ts` — all route handlers and proxy logic; exported validation/payload helpers for dictation and agent route tests.
-- `test/agent-validation.test.ts` — Node tests for the strict General Agent contract and its Azure Responses payload.
-- `test/dictation-validation.test.ts` — Node tests for bounded dictation WebSocket messages and session configuration.
-- `wrangler.toml` — Worker name (`realtime-proxy`), entrypoint, compatibility date, the
-  `AUTH_TOKENS` / `SESSIONS` KV namespace bindings, and the `MAGIC_LINK_FROM` /
-  `PUBLIC_BASE_URL` vars.
-- `.wrangler/` — local Wrangler state/cache. Do not commit secrets from local state.
+- `src/index.ts` — all route handlers + exported validation/payload helpers for tests.
+- `test/agent-validation.test.ts` — General Agent contract + Azure payload tests.
+- `test/dictation-validation.test.ts` — dictation WebSocket / session config tests.
+- `wrangler.toml` — name `realtime-proxy`, entry, compatibility date, KV bindings,
+  `MAGIC_LINK_FROM`, `PUBLIC_BASE_URL`.
+- `.wrangler/` — local Wrangler cache. Do not commit secrets from local state.
+
+**No `package.json`.** Do not add an npm manifest unless explicitly asked (see §6).
 
 ---
 
 ## 4. Bindings, Secrets & Vars
 
-**Secrets** (set with `npx wrangler secret put <NAME>`, never in source or `wrangler.toml`):
+**Secrets** (`npx wrangler secret put <NAME>` — never in source):
 
-- `AZURE_OPENAI_API_KEY` — used by `/realtime`, `/dictation/realtime`, and `/agent-response` to authenticate to Azure.
-- `COMPOSIO_API_KEY` — used by `/composio-config` and Composio user provisioning.
-- `RESEND_API_KEY` — used to deliver magic-link emails via the Resend HTTP API.
+- `AZURE_OPENAI_API_KEY` — `/realtime`, `/dictation/realtime`, `/agent-response`
+- `COMPOSIO_API_KEY` — Composio routes + user provisioning
+- `RESEND_API_KEY` — magic-link email
 
-**KV namespaces:**
+**KV**
 
-- `AUTH_TOKENS` — pending magic-link tokens (`token → email`), TTL'd via `expirationTtl`.
-- `SESSIONS` — long-lived Composio sessions (`sessionToken → { composioUserId, kind,
-  email? }`, JSON). No TTL — a session lives as long as the app's Keychain entry does.
-  Populated by `/auth/anonymous` (`kind: "anonymous"`) and `/auth/verify`
-  (`kind: "email"`). Every Composio route (`/composio-config`, `/composio-connect`,
-  `/composio-connections`, `/spotify-play`) resolves the caller's identity from this via
-  the `Authorization: Bearer <sessionToken>` header — there is no fixed/shared identity
-  anymore.
+- `AUTH_TOKENS` — pending magic-link tokens (`token → email`), TTL via `expirationTtl`
+- `SESSIONS` — `sessionToken → { composioUserId, kind, email? }` JSON, no TTL. Created only
+  by `/auth/anonymous` and `/auth/verify`. Every Composio-facing route resolves identity
+  via `Authorization: Bearer` + `resolveSession()` — never a fixed shared user id.
 
-**Plain vars (in `wrangler.toml`):**
+**Vars (`wrangler.toml`)**
 
-- `MAGIC_LINK_FROM` — sender address. Default `onboarding@resend.dev` works with no domain
-  but only delivers to the address the Resend account signed up with; switch to an address
-  on a verified Resend domain to email anyone.
-- `PUBLIC_BASE_URL` — public origin of the Worker, used to build the clickable email link
-  (`https://realtime-proxy.winky-secrets.workers.dev`).
+- `MAGIC_LINK_FROM` — default `onboarding@resend.dev` (Resend signup-address only until a
+  verified domain is configured)
+- `PUBLIC_BASE_URL` — public Worker origin for email links
 
 ---
 
 ## 5. Invariants (do not break)
 
-- Keep `/realtime` a pure byte-forwarding WebSocket proxy. Do not parse, transform, log
-  full payloads, or add compute-heavy handling in the proxy path.
-- Validate request method and input shape for JSON routes; reflect only validated values.
-- Magic-link tokens are **single-use** and expire via KV `expirationTtl` (15 min).
-- There is no fixed/shared Composio identity. Every Composio-facing route resolves
-  `composioUserId` from the caller's `SESSIONS` record via `resolveSession()` — never
-  hardcode a `user_id`, and never trust a client-supplied identity that hasn't been
-  resolved through `SESSIONS`. This is a hosted, currently single-operator Worker;
-  hardening this further (e.g. binding sessions to something less guessable, rate
-  limiting `/auth/anonymous`) is a prerequisite before opening the Worker to many
-  independent users.
-- `/auth/anonymous` and `/auth/verify` are the only two ways a `SESSIONS` record is
-  created, and both return the same `{ sessionToken, composioUserId }` shape. Logging in
-  (`/auth/verify`) always mints a new session with `composioUserId = email` — it does not
-  merge or migrate connected accounts from a prior anonymous session.
-- Worker state is not durable except KV. Do not rely on module-level mutable state for
-  sessions.
-- Composio user provisioning (`provisionComposioUser`, used by both `/auth/verify` and
-  `/auth/anonymous`) is best-effort: a Composio hiccup must not block login or the
-  first-run bootstrap.
-- Dictation has a deliberately separate authenticated WebSocket route. It opens only after local target validation, uses one short-lived text-only realtime session, and accepts no client event that could create a response with tools or audio. The Worker owns the Azure session configuration and closes the upstream session when the app closes its dictation socket.
-- The General Agent API is intentionally development-only and stateless. `GET /agent-config` is the client-visible capability document and kill switch; `POST /agent-response` enforces the same enabled flag so stale clients cannot bypass it. It does not add KV, Durable Object, subscription, quota, trial, or rate-limit state.
-- Agent requests use only `protocol_version: 1`, `agent: "general"`, a non-empty structurally bounded `input`, optional `operation: "general" | "skill-draft"`, optional `web_search`, optional allow-listed `continuation_items`, and optional `tool_outputs`. Reject every unknown top-level or nested field, duplicate function-call `call_id`, duplicate tool-output `call_id`, and missing or ambiguous output matches.
-- The Worker, not the caller, owns the Azure model, medium reasoning, safety instructions, `store: false`, streaming, encrypted reasoning inclusion, disabled parallel tool calls, and the strict schemas for `read_attachment`, `run_javascript`, `create_artifact`, `ask_question`, and `final_result`. Never accept caller-provided tool definitions, remote MCP entries, or provider overrides.
-- Stateless Azure input preserves continuation order and inserts each matching `function_call_output` immediately after its `function_call`; tool outputs are never collected at the end. Normal text is progress only, local tool calls resume in a later stateless request, and `final_result` is the sole task-completion signal.
-- The agent SSE normalizer may incrementally parse Azure event framing, but must never forward raw provider events or sensitive provider error details. It emits only protocol-v1 Macky text, continuation, tool-call, completed, and generic error data objects. Do not log prompts, responses, tool data, Azure error bodies, bearer tokens, or session tokens; log only a generic failure and non-sensitive upstream status when necessary.
+- Keep `/realtime` a pure byte-forwarding proxy — no payload transform/logging/compute.
+- Validate JSON route methods and shapes; reflect only validated values.
+- Magic-link tokens are **single-use** and expire (15 min).
+- Resolve `composioUserId` only from `SESSIONS` — never trust client-supplied identity.
+- `/auth/anonymous` and `/auth/verify` are the only `SESSIONS` creators; same response
+  shape. Email login does not merge anonymous Composio connections.
+- No durable Worker state except KV. No module-level session stores.
+- Composio provisioning is best-effort — must not block login/bootstrap.
+- Dictation stays a separate authenticated socket; Worker owns Azure session config; no
+  client event may enable tools or audio out.
+- General Agent API stays development-oriented and **stateless**: no KV/DO/quota/trial
+  task store. `/agent-config` kill switch must match `/agent-response` enforcement.
+- Agent requests: only `protocol_version: 1`, `agent: "general"`, bounded `input`,
+  optional `operation`, `web_search`, allow-listed `continuation_items`, `tool_outputs`.
+  Reject unknown fields and mismatched/duplicate `call_id`s.
+- Worker owns Azure model, medium reasoning, safety instructions, `store: false`,
+  streaming, encrypted reasoning inclusion, disabled parallel tool calls, and strict
+  schemas for `read_attachment`, `run_javascript`, `create_artifact`, `ask_question`,
+  `final_result`. Never accept caller tool defs, remote MCP, or provider overrides.
+- Preserve continuation order; insert each `function_call_output` immediately after its
+  `function_call`. `final_result` is the only completion signal.
+- SSE normalizer emits only protocol-v1 Macky events. Do not log prompts, responses, tool
+  data, Azure error bodies, or tokens.
 
 ---
 
 ## 6. Ask Before
 
-- Adding or renaming a route (the approved `/agent-config` and `/agent-response` routes above are the only General Agent routes).
-- Changing the Azure realtime URL, the `model` query parameter, or the auth header.
-- Changing the Composio session payload or returned config shape.
-- Changing how `SESSIONS` records are created/resolved, or the `{ sessionToken,
-  composioUserId }` response shape shared by `/auth/anonymous` and `/auth/verify`.
-- Changing the magic-link email content, sender logic, or the `/auth/open` /
-  `/auth/connected` redirect bridges.
-- Adding npm dependencies or a package manifest.
-- Replacing KV token storage with another persistence mechanism.
+- Adding/renaming routes (including new General Agent routes beyond the two above)
+- Changing Azure realtime URL, `model` query param, or auth header
+- Changing Composio session payload / returned `{ url, key }` shape
+- Changing `SESSIONS` creation/resolution or `{ sessionToken, composioUserId }` shape
+- Changing magic-link content or `/auth/open` / `/auth/connected` bridges
+- Adding npm dependencies or a package manifest
+- Replacing KV with another persistence mechanism
+- Multi-tenant hardening (rate limits, stronger session binding) — prerequisite before
+  opening the Worker to many independent users
 
 ---
 
 ## 7. Validation
 
-- **Static first:** read `src/index.ts`, then `rg -n` the route names in the Swift app to
-  confirm both ends agree.
-- **Local run** (when secrets are available): `npx wrangler dev`.
-- **Deploy** only when explicitly requested: `npx wrangler deploy`.
-- TypeScript-only changes can be type-checked without deploying.
-- Dictation validation fixtures: `node --experimental-transform-types --test test/dictation-validation.test.ts`.
-- Agent validation fixtures: `node --experimental-transform-types --test test/agent-validation.test.ts`.
+- Static first: read `src/index.ts`, `rg` route names in the Swift app, confirm
+  `WorkerEndpoints` agreement.
+- Local: `npx wrangler dev` (secrets required for real Azure/Composio).
+- Deploy only when asked: `npx wrangler deploy`.
+- Tests:
+  - `node --experimental-transform-types --test test/dictation-validation.test.ts`
+  - `node --experimental-transform-types --test test/agent-validation.test.ts`
 
 ---
 
 ## User Instructions
 
-For a human running or deploying the Worker.
-
 ### One-time setup
-1. Authenticate Wrangler: `npx wrangler login`.
-2. Create the KV namespaces and paste the ids into `wrangler.toml`:
+
+1. `npx wrangler login`
+2. Create KV namespaces and paste ids into `wrangler.toml`:
    ```bash
    npx wrangler kv namespace create AUTH_TOKENS
    npx wrangler kv namespace create AUTH_TOKENS --preview
    npx wrangler kv namespace create SESSIONS
    npx wrangler kv namespace create SESSIONS --preview
    ```
-3. Create a [Resend](https://resend.com) account (sign up with the email you want links
-   delivered to while testing without a domain) and an API key.
-4. Create a [Composio](https://app.composio.dev) project, grab its project API key, and
-   (in the dashboard) create an auth config for each toolkit `ConnectorRegistry.swift`
-   registers (gmail, slack, googlecalendar, notion, github, linear, spotify) —
-   Composio-managed auth is fine to start. `/composio-connect` 404s for a toolkit with no
-   auth config.
-5. Store the secrets:
+3. Resend account + API key.
+4. Composio project API key; create auth configs for each
+   `ConnectorRegistry` slug (`gmail`, `slack`, `googlecalendar`, `notion`, `github`,
+   `linear`, `spotify`) or `/composio-connect` 404s.
+5. Secrets:
    ```bash
    npx wrangler secret put AZURE_OPENAI_API_KEY
    npx wrangler secret put COMPOSIO_API_KEY
@@ -165,11 +159,17 @@ For a human running or deploying the Worker.
    ```
 
 ### Develop & deploy
-- Local: `npx wrangler dev` (from `worker/`).
-- Deploy: `npx wrangler deploy`.
-- Logs: `npx wrangler tail` to watch live requests (the magic link is also logged here).
 
-### Test the auth flow
-- `POST /auth/magic-link` with `{ "email": "you@example.com" }` sends the email (and logs
-  the link). Open the link → it redirects into `Macky://auth?token=…` → the app calls
-  `POST /auth/verify` to exchange the token for a session.
+- Local: `npx wrangler dev` (from `worker/`)
+- Deploy: `npx wrangler deploy`
+- Logs: `npx wrangler tail`
+
+### Auth smoke test
+
+`POST /auth/magic-link` with `{ "email": "you@example.com" }` → open link →
+`Macky://auth?token=…` → app `POST /auth/verify`.
+
+### Pointing the app at your Worker
+
+Set `WorkerEndpoints.baseHost` in the Swift app to your Worker host (no scheme). That is
+the only Swift host constant.

@@ -1,226 +1,235 @@
 # AGENTS.md — leanring-buddy (the Macky macOS app)
 
-README and operating manual for the active macOS app target. Root `AGENTS.md` still
-applies. A **User Instructions** section for humans is at the end.
+Operating manual for the active macOS app target. Root [`AGENTS.md`](../AGENTS.md) and
+[`MACKY.md`](../MACKY.md) still apply — read them first for cross-cutting architecture and
+product rules.
 
 > The folder, scheme, and project are named `leanring-buddy` (with the typo) for legacy
 > reasons. This **is** the Macky app. Do not rename anything for branding.
+
+Related nested guides:
+
+- [`../leanring-buddy.xcodeproj/AGENTS.md`](../leanring-buddy.xcodeproj/AGENTS.md) — target membership / SPM
+- [`../MackyAgentExecutor/AGENTS.md`](../MackyAgentExecutor/AGENTS.md) — XPC JS sandbox used by agents
+- [`../worker/AGENTS.md`](../worker/AGENTS.md) — backend the app talks to
 
 ---
 
 ## 1. What This Folder Is
 
-A SwiftUI + AppKit **macOS accessory app** that renders a notch-first assistant UI,
-captures push-to-talk audio, streams it to a realtime voice model through the Cloudflare
-Worker, and exposes local macOS tools plus cloud tools (via Composio MCP). It runs as an
-accessory (no Dock icon); all visible product UI lives in a borderless `NSPanel` aligned
-to the notch.
+A SwiftUI + AppKit **macOS accessory app** (no Dock icon) that:
+
+- renders a notch-first assistant UI in a borderless `NSPanel`
+- captures push-to-talk and dedicated dictation audio
+- streams assistant audio through the Worker to Azure realtime
+- exposes local Swift tools + Composio MCP cloud tools
+- runs encrypted local General Agent jobs (voice stays on realtime)
+
+All visible product UI lives in that panel. Product name / bundle: **Macky** /
+`com.speedmac.Macky`.
 
 ---
 
-## 2. Read First (for behavior / architecture work)
+## 2. Read First (behavior / architecture work)
 
-1. `../MACKY.md` — product brief and intended behavior.
-2. `App/leanring_buddyApp.swift` — app entry point.
-3. `Harness/Session/CompanionManager.swift` — central state coordinator.
-4. The specific file you plan to edit.
-5. Direct callers/callees found with `rg`.
+1. `../MACKY.md` — product brief.
+2. `../AGENTS.md` — repo constraints and interaction model.
+3. `App/leanring_buddyApp.swift` — entry.
+4. `Harness/Session/CompanionManager.swift` — central state.
+5. The file you will edit + callers/callees (`rg`).
 
-- **Notch / geometry work** — also read `Overlay/NotchPanelController.swift`, `Overlay/NotchUIModel.swift`,
-  `Overlay/NotchContainerView.swift`, `Overlay/Notchshape.swift`, `Overlay/AurenStatusBar.swift`,
-  `Overlay/AurenPanel.swift`, `Overlay/AurenFileDropPanel.swift`, `Overlay/WindowPositionManager.swift`.
-- **Realtime / audio / tools** — also read `Harness/Dispatcher/RealtimeClient.swift`,
-  `Harness/Dispatcher/BuddyDictationManager.swift`, `Shared/AudioConversionSupport.swift`, `Overlay/VoiceActivityView.swift`,
-  and the specific integration file involved.
+**Also read when touching…**
+
+| Area | Start here |
+|------|------------|
+| Notch / geometry | `Overlay/NotchPanelController.swift`, `NotchUIModel.swift`, `NotchContainerView.swift`, `Notchshape.swift`, `WindowPositionManager.swift`, `AurenStatusBar.swift`, `AurenPanel.swift`, `AurenFileDropPanel.swift`, `PanelTabBar.swift`, `AgentsPanelView.swift` |
+| Realtime / tools / audio | `Harness/Dispatcher/RealtimeClient.swift`, `BuddyDictationManager.swift`, `GlobalPushToTalkShortcutMonitor.swift`, `Shared/AudioConversionSupport.swift`, `Overlay/VoiceActivityView.swift`, `Overlay/NotchRightActivityView.swift` |
+| Dictation | `Dictation/DictationCoordinator.swift`, `DictationModels.swift`, `DictationTargetIntegration.swift` |
+| Agents | `Harness/Agents/*`, `Overlay/AgentsPanelView.swift`, `../MackyAgentExecutor/` |
+| Connectors / Skills | `Harness/Registry/ConnectorRegistry.swift`, `SkillRegistry.swift`, `Skills/*`, `Overlay/AurenPanel.swift` |
+| Worker URLs | `Networking/WorkerEndpoints.swift` (only place to change host) |
 
 ---
 
 ## 3. File Map
 
 ### App lifecycle & state
-- `App/leanring_buddyApp.swift` — sets accessory activation, registers the `Macky://auth` URL
-  handler, creates and starts `CompanionManager`, and creates `NotchPanelController`.
-- `Harness/Session/CompanionManager.swift` — the central `@MainActor` state coordinator: permissions,
-  shortcut state, voice state, operation state, pending attachments, pending connector
-  (Composio Connect) links, and the history shown in the panel.
+
+- `App/leanring_buddyApp.swift` — accessory activation, `Macky://` URL handler, creates
+  `CompanionManager` + `NotchPanelController`.
+- `Harness/Session/CompanionManager.swift` — `@MainActor` coordinator: permissions,
+  shortcuts, `voiceState`, `operationState`, narration, attachments, connector connect
+  links, panel onboarding, history, analytics call sites, agent coordinator ownership.
 
 ### Harness
-- `Harness/Dispatcher/RealtimeClient.swift` — the persistent realtime dispatcher,
-  local-tool dispatcher, MCP continuation coordinator, and audio transport.
-- `Harness/Dispatcher/GlobalPushToTalkShortcutMonitor.swift` — the global shortcut event tap.
-- `Harness/Dispatcher/BuddyDictationManager.swift` — realtime assistant microphone capture.
-- `Harness/Registry/ConnectorRegistry.swift` — connector identity and MCP-tool matching catalog.
-- `Harness/Registry/SkillRegistry.swift` — skill identity and connector-dependency catalog.
-- `Harness/Agents/` — local General Agent models, encrypted persistence, attachment
-  storage, stateless Worker transport, three-job runtime, Realtime bridge, and the
-  sandboxed JavaScript XPC client.
-- `Harness/Loop/LoopPlaceholder.swift` — legacy location marker; the active loop is
-  `Harness/Agents/AgentRuntime.swift`.
+
+- `Harness/Dispatcher/RealtimeClient.swift` — persistent WebSocket, `session.update`,
+  event parsing, local tool dispatch, Composio MCP registration, audio I/O, heartbeat,
+  reconnect. URLs derive from `WorkerEndpoints`.
+- `Harness/Dispatcher/GlobalPushToTalkShortcutMonitor.swift` — one CGEvent tap;
+  assistant chord + reserved Ctrl+Fn dictation routing; `HotkeyConfiguration`.
+- `Harness/Dispatcher/BuddyDictationManager.swift` — assistant mic → PCM16 24 kHz mono.
+- `Harness/Registry/ConnectorRegistry.swift` — Composio toolkit identity + MCP name match
+  for notch branding (`gmail`, `slack`, `googlecalendar`, `notion`, `github`, `linear`,
+  `spotify`).
+- `Harness/Registry/SkillRegistry.swift` — skill identity / connector-dependency catalog.
+- `Harness/Agents/` — General Agent stack:
+  - `AgentCoordinator`, `AgentRuntime` — orchestration, ≤3 concurrent jobs, sleep/resume
+  - `AgentRealtimeBridge` — realtime spawn/list/result/cancel/open tools
+  - `AgentAPIClient` — Worker `/agent-config` + `/agent-response`
+  - `AgentContracts`, `AgentModels`, `AgentRegistry`
+  - `AgentPersistence`, `AgentLocalStore`, `AgentAttachmentStore` — encrypted local state
+  - `AgentJavaScriptExecutorClient` — XPC client to `MackyAgentExecutor`
+- `Harness/Loop/LoopPlaceholder.swift` — legacy marker; active loop is `AgentRuntime`.
 
 ### Notch & panel UI
-- `Overlay/NotchPanelController.swift` — owns the borderless `NSPanel`, computes closed/open
-  frames, and hosts SwiftUI without letting `NSHostingView` resize the window.
-- `Overlay/NotchUIModel.swift` — notch geometry and open/closed state **only** (no voice/tool
-  state here).
-- `Overlay/NotchContainerView.swift`, `Overlay/AurenStatusBar.swift`, `Overlay/AurenPanel.swift`,
-  `Overlay/AurenFileDropPanel.swift`, `Overlay/Notchshape.swift`, `Overlay/VoiceActivityView.swift` — the notch UI
-  and panel surfaces, the notch shape path, and the live voice waveform.
-- `Auth/AuthView.swift`, `Settings/HotkeySettingsView.swift` — onboarding/auth and hotkey settings UI.
-- `Overlay/DesignSystem.swift` — shared design tokens and button styles.
-- `Shared/AppKitExtensions.swift`, `Overlay/WindowPositionManager.swift` — AppKit helpers and multi-display
-  window placement.
 
-### Voice pipeline
-- `Harness/Dispatcher/RealtimeClient.swift` — persistent WebSocket, `session.update` payload, realtime event
-  parsing, local function-tool dispatch, Composio MCP registration, audio send/receive,
-  heartbeat, and reconnect. Its Worker URLs (`workerRealtimeURL`, `composioConfigURL`)
-  derive from the shared `WorkerEndpoints` — they are no longer hardcoded here.
-- `Networking/WorkerEndpoints.swift` — the single source of truth for the hosted Worker's host
-  (`baseHost`) and every derived URL (realtime socket, Composio config/connect/connections,
-  auth base). Change `baseHost` here (only) to self-host the backend.
-- `Harness/Dispatcher/BuddyDictationManager.swift` — captures the mic and streams PCM16 24 kHz mono chunks.
-- `Shared/AudioConversionSupport.swift` — audio format conversion helpers.
-- `Harness/Dispatcher/GlobalPushToTalkShortcutMonitor.swift` — listen-only global CGEvent tap for
-  modifier-only push-to-talk.
+- `Overlay/NotchPanelController.swift` — owns `NSPanel`, frames, hosts SwiftUI without
+  letting `NSHostingView` resize the window.
+- `Overlay/NotchUIModel.swift` — geometry + open/closed **only** (no voice/tool state).
+  Open size: **680×340** (`NotchConstants.openNotchSize`).
+- `Overlay/NotchContainerView.swift` — closed bar + expanded panel; pages:
+  `home | agents | connectors | settings | files`; hover/tap/drop/auth/agents presentation.
+- `Overlay/PanelTabBar.swift`, `Overlay/AgentsPanelView.swift` — tab chrome + Agents UI.
+- `Overlay/AurenStatusBar.swift`, `AurenPanel.swift`, `AurenFileDropPanel.swift` —
+  closed status / home+connectors surfaces / file drop.
+- `Overlay/Notchshape.swift`, `VoiceActivityView.swift`, `NotchRightActivityView.swift` —
+  shape path, waveforms, right-side activity.
+- `Overlay/DesignSystem.swift`, `MackyLogo.swift`, `DotMatrixSpinner.swift`,
+  `IconPreviewStrip.swift` — tokens and shared chrome.
+- `Overlay/WindowPositionManager.swift`, `Shared/AppKitExtensions.swift` — multi-display
+  placement and AppKit helpers.
 
-### Auth
-- `Auth/AuthManager.swift` — magic-link auth against the Worker; stores the session in
-  Keychain. Its `workerBaseURL` derives from `WorkerEndpoints.httpsBase` (not hardcoded
-  here). Handles the incoming `Macky://auth?token=…` deep link and exchanges the token via
-  `/auth/verify`.
+### Auth, dictation, skills, settings
 
-### Dedicated dictation
-- `Dictation/DictationCoordinator.swift` — target-safe Ctrl + Fn lifecycle, isolated
-  realtime streaming, final text-only formatting, and insertion coordination.
-- `Dictation/DictationModels.swift` — dictation modes, surface classification, glossary,
-  and local formatting types.
-- `Dictation/DictationTargetIntegration.swift` — target snapshot, revalidation, and safe insertion.
+- `Auth/AuthManager.swift`, `Auth/AuthView.swift` — anonymous + magic-link session;
+  Keychain; deep links. Base URL from `WorkerEndpoints.httpsBase`.
+- `Dictation/DictationCoordinator.swift` — Ctrl+Fn lifecycle, isolated socket, insert.
+- `Dictation/DictationModels.swift`, `DictationTargetIntegration.swift` — modes, glossary,
+  AX target snapshot / revalidation / safe insert.
+- `Skills/SkillsWindowController.swift`, `SkillsWindowView.swift`,
+  `SkillCatalogStore.swift`, `AgentSkillDraftingProvider.swift` — Skills catalog + draft.
+- `Settings/HotkeySettingsView.swift`, `Settings/DictationSettingsView.swift`.
 
-### Skills and settings
-- `Skills/SkillsWindowController.swift`, `Skills/SkillsWindowView.swift` — the standalone
-  Skills catalog window.
-- `Settings/HotkeySettingsView.swift`, `Settings/DictationSettingsView.swift` — inline settings surfaces.
+### Local integrations (Swift tools — no cloud, no LMCP)
 
-### Local integrations (macOS-native, no cloud)
-- `Connectors/CalendarIntegration.swift` — EventKit (calendar).
-- `Connectors/RemindersIntegration.swift` — EventKit (reminders).
-- `SystemIntegration/SystemControlsIntegration.swift` — AppKit / AppleScript / CGEvent system shortcuts.
-- `SystemIntegration/AppLauncherIntegration.swift` — `NSWorkspace` app launching.
-- `SystemIntegration/CompanionScreenCaptureUtility.swift` — ScreenCaptureKit for on-demand screen context.
-- `SystemIntegration/CursorControlIntegration.swift` — standalone CGEvent cursor movement, clicking, dragging,
-  and scrolling.
+- `Connectors/CalendarIntegration.swift`, `RemindersIntegration.swift` — EventKit.
+- `SystemIntegration/SystemControlsIntegration.swift` — volume, DND, lock, etc.
+- `SystemIntegration/AppLauncherIntegration.swift` — `NSWorkspace`.
+- `SystemIntegration/CompanionScreenCaptureUtility.swift` — ScreenCaptureKit on demand.
+- `SystemIntegration/CursorControlIntegration.swift` — CGEvent cursor ops.
+- `SystemIntegration/FocusedTextIntegration.swift`, `ForegroundAppContext.swift` —
+  focused-field context for assistant tools / policies.
 
-### Observability
-- `Analytics/MackyAnalytics.swift` — thin wrapper over the PostHog SDK. No-ops until a
-  `POSTHOG_API_KEY` (Info.plist or env) is configured, so dev builds ship nothing. Event
-  **call sites** live in `CompanionManager` (turn latency, connector-connect funnel steps)
-  and `RealtimeClient` (native + MCP tool success/failure, connect-link requested). Add new
-  events through its `Event`/category methods, not a parallel API.
+### Networking, analytics, config
 
-### Config & resources
-- `Info.plist` — bundle config, permission usage strings, the `Macky://` URL scheme.
-- `leanring-buddy.entitlements` — sandbox/capabilities, permissions, URL scheme.
-- `Assets.xcassets/` — app icon and colors.
+- `Networking/WorkerEndpoints.swift` — **single** `baseHost` + every derived URL
+  (realtime, dictation, agent, composio, spotify, auth base).
+- `Analytics/MackyAnalytics.swift` — PostHog wrapper; no-ops without `POSTHOG_API_KEY`.
+  Call sites in `CompanionManager` / `RealtimeClient`.
+- `Info.plist`, `leanring-buddy.entitlements`, `Assets.xcassets/` — permissions, URL
+  scheme `Macky://`, sandbox/capabilities, icons.
+
+### Tests (sibling folder)
+
+`../leanring-buddyTests/` — XCTest coverage for agents, dictation models, skills,
+notch activity, attachments, foreground context. Prefer adding tests next to touched
+logic when practical; run from Xcode.
 
 ---
 
 ## 4. Active Architecture Notes
 
-- The realtime socket is **persistent**. The app connects once and stays connected; it
-  does not connect/disconnect per utterance. On connect, the socket opens immediately and
-  the one-time Composio MCP config is fetched **concurrently** (not before the socket) — if
-  it resolves after the first `session.update`, the MCP tool is wired in with a follow-up
-  update. A reconnect mid-utterance does **not** replay dropped mic audio (the server-side
-  input buffer is cleared on reconnect, so replaying a fragment would mis-transcribe);
-  instead the dropped utterance is discarded rather than committed as a partial turn.
-- macOS-native actions stay local in Swift; web services go through the **Composio MCP
-  gateway** wired into the realtime session config — not through one-off OAuth clients.
-- Screen context is **on demand** — the app does not capture or send screenshots on every
-  key press, and by default captures only the cursor's display (the `get_screen_context`
-  tool's `all_screens` flag opts into every monitor).
-- Coordinate-based cursor actions require a fresh current-turn screen capture. Multi-display
-  coordinate actions must use the capture's `display_id`, and any standalone cursor action
-  invalidates cached coordinates before the next action.
-- Realtime remains the sole voice layer. `AgentRealtimeBridge` registers asynchronous
-  spawn/list/result/cancel/open tools before `RealtimeClient.connect()`, but running
-  background jobs never feed `voiceState`, `operationState`, or realtime tool activity.
-- Agent task state, provider continuation items, results, questions, and artifacts are
-  encrypted locally. Explicit task attachments use encrypted chunked storage. The Worker
-  is stateless and normalizes Azure Responses SSE into Macky's versioned protocol.
-- `AgentRuntime` permits at most three concurrent jobs, queues the rest without product
-  quotas, applies steering/cancellation at safe boundaries, pauses for Mac sleep, and
-  resumes queued/running work after wake or relaunch.
+- **Persistent assistant socket.** Connect once; stay connected. Composio MCP config is
+  fetched **concurrently** with socket open; late config triggers a follow-up
+  `session.update`. Mid-utterance reconnect **discards** the utterance (no partial replay).
+- **One Composio MCP entry** in session tools (`server_label: "composio"`,
+  `require_approval: "never"`). Native tools are separate function tools.
+- **Screen context on demand** — default capture is the cursor’s display; `all_screens`
+  opts into every monitor. Coordinate actions need a fresh current-turn capture +
+  `display_id` on multi-display.
+- **Realtime is the only voice layer.** `AgentRealtimeBridge` registers async agent tools
+  before `connect()`, but running jobs never feed `voiceState` / `operationState` /
+  realtime tool activity. Idle notch may show a local agent notice.
+- **Agent state is local-encrypted.** Worker normalizes Azure Responses SSE into protocol
+  v1; it does not store tasks.
+- **`AgentRuntime`:** ≤3 concurrent jobs; queue rest; steering/cancel at safe boundaries;
+  pause on sleep; resume after wake/relaunch.
+- **Panel expansion triggers (code):** hover/tap, incomplete auth/onboarding, settings,
+  file drop → Files, Agents presentation. Tool narration for live turns stays in the
+  **closed** status bar unless you are implementing a new expansion product feature.
+
+### Native tool names (keep stable)
+
+`get_screen_context`, `get_focused_text_context`, `apply_focused_text`, `control_cursor`,
+`volume_up`, `volume_down`, `toggle_do_not_disturb`, `lock_screen`, `open_url_in_chrome`,
+`new_chrome_tab`, `control_music`, `play_spotify_track`, `get_calendar_events`,
+`create_calendar_event`, `find_free_slot`, `create_reminder`, `open_app`.
+
+Agent bridge tools: `spawn_agents`, `list_agent_tasks`, `get_agent_result`,
+`cancel_agent`, `open_agents_page`.
 
 ---
 
 ## 5. Invariants (do not break)
 
-- Keep `CompanionManager` and all UI-observed state on `@MainActor`.
-- Keep the realtime socket persistent; preserve the heartbeat/reconnect lifecycle unless
-  the task is specifically about connection reliability.
-- Preserve **barge-in**: push-to-talk should interrupt current model playback before
-  starting a new capture.
-- The closed notch stays small and unobtrusive. Expansion happens only on hover, for
-  onboarding/auth/settings, for file input, or for useful multi-step task output.
+- Keep `CompanionManager` and UI-observed state on `@MainActor`.
+- Keep the assistant realtime socket persistent; preserve heartbeat/reconnect unless the
+  task is specifically about connection reliability.
+- Preserve **barge-in**: PTT interrupts playback before a new capture.
+- Closed notch stays small. Do not expand for ordinary listening/thinking/speaking/tool
+  turns.
 - Attach file/image context **before** `requestResponse()`.
-- Agent attachments are explicit only. Do not route an Agents composer drop through the
-  realtime Files page, expose original source URLs to the model, or store copied files
-  plaintext.
-- Do not merge background-agent execution into Realtime's active-state properties. Only a
-  transient local completion/needs-input notice may occupy the closed notch while voice is idle.
-- Web service integrations go through Composio MCP. Do not add one-off OAuth flows or
-  direct API clients for Slack, Gmail, Spotify, GitHub, Notion, Linear, etc. unless
-  explicitly asked.
-- Do not rename `Auren*` files or symbols just for branding cleanup — some legacy names
-  remain in active code.
+- Agent attachments are explicit only — never route Agents composer drops through Files,
+  never expose original source URLs to the model, never store copied files plaintext.
+- Do not merge background-agent execution into Realtime active-state properties.
+- Web services go through Composio MCP — no one-off OAuth/API clients for those apps
+  unless explicitly asked.
+- Do not rename `Auren*` files/symbols just for branding.
+- Do not hardcode Worker hosts outside `WorkerEndpoints`.
+- Dictation chord **Ctrl + Fn** stays reserved and conflict-checked against the assistant
+  hotkey.
 
 ---
 
-## 6. Risky Files (state the exact reason before changing)
+## 6. Risky Files (state the reason before changing)
 
-- `Harness/Dispatcher/RealtimeClient.swift` — protocol, heartbeat, tool dispatch, MCP, audio playback.
-- `Harness/Session/CompanionManager.swift` — central state transitions.
-- `Harness/Dispatcher/GlobalPushToTalkShortcutMonitor.swift` — global event tap behavior; bugs here break the
-  core interaction.
-- `Overlay/NotchPanelController.swift` / `Overlay/NotchUIModel.swift` — geometry, animation, click-through
-  surface.
-- `DesignSystem.swift` — shared tokens and button styles.
-- `Info.plist` / `leanring-buddy.entitlements` — permissions, URL scheme,
-  sandbox/capabilities.
+| File | Why |
+|------|-----|
+| `RealtimeClient.swift` | Protocol, heartbeat, tools, MCP, audio |
+| `CompanionManager.swift` | Central state transitions |
+| `GlobalPushToTalkShortcutMonitor.swift` | Global event tap; breaks core UX if wrong |
+| `NotchPanelController.swift` / `NotchUIModel.swift` | Geometry, animation, click-through |
+| `NotchContainerView.swift` | Expansion / page routing |
+| `DictationCoordinator.swift` | Safety-critical insert path |
+| `AgentRuntime.swift` / `AgentPersistence.swift` | Concurrency + encrypted store |
+| `DesignSystem.swift` | Shared tokens |
+| `Info.plist` / entitlements | Permissions, URL scheme, sandbox |
+| `WorkerEndpoints.swift` | Every backend URL |
 
 ---
 
 ## 7. Validation
 
-- Preferred verification is **Xcode on macOS**, not terminal `xcodebuild` (it can disturb
-  TCC permissions).
-- When you cannot build, limit validation to static checks: changed-file review, `rg` for
-  callers/imports, and project membership for added files. State that no Xcode build ran.
-- If you **add** a Swift file, confirm it is included in
-  `../leanring-buddy.xcodeproj/project.pbxproj` (app target membership).
-- If you **remove** a symbol, remove only the imports/code your change made unused. Do not
-  delete pre-existing dead code opportunistically.
+- Prefer **Xcode on macOS**, not terminal `xcodebuild` (TCC risk).
+- If you cannot build: static review + `rg` + confirm new files are in
+  `../leanring-buddy.xcodeproj/project.pbxproj`. Say that no Xcode build ran.
+- When adding Swift sources, set correct target membership (`leanring-buddy` and/or tests /
+  XPC).
+- When removing a symbol, remove only imports/code your change made unused — no drive-by
+  dead-code deletion.
+- Run relevant `leanring-buddyTests` from Xcode when touching covered modules.
 
 ---
 
 ## User Instructions
 
-For a human running the app.
+1. Open `../leanring-buddy.xcodeproj`, select scheme `leanring-buddy`, ⌘R (macOS 14.2+).
+2. Grant **Microphone**, **Accessibility**, **Screen Recording** (and Calendar/Reminders
+   when prompted).
+3. Sign in via magic link (`Macky://auth`) or **Skip for now**.
+4. Hold **Ctrl + Option** (default), speak, release. Dictation: **Ctrl + Fn** in a text field.
+5. Connect cloud apps from **Connectors** or when a Connect link appears.
 
-1. Open `../leanring-buddy.xcodeproj` in Xcode, select the `leanring-buddy` scheme, and
-   build & run (⌘R). Min target is macOS 14.2.
-2. **Grant permissions** when prompted — Microphone, Accessibility (for the global
-   push-to-talk tap), and Screen Recording (for screen context). Without Accessibility the
-   hotkey will not fire; without Microphone there is no voice input.
-3. **Sign in or skip for now** through the magic-link screen: enter your email, click the
-   link that arrives by email (it opens the app via the `Macky://auth` URL scheme), and
-   the session is saved to your Keychain. During early testing, you can also click
-   **Skip for now** to continue onboarding without a saved session.
-4. **Use it:** hold the push-to-talk shortcut (default modifier-only chord; configurable in
-   the hotkey settings), speak, and release. Watch the notch for the listening waveform;
-   the panel expands only when there is something to show.
-5. **Connect cloud apps** (Slack, Gmail, Spotify, …) the first time the assistant needs
-   them — it surfaces a Composio Connect link to authorize each service once.
-
-> The backend Worker must be running/deployed for sign-in and realtime to work — see
-> `../worker/AGENTS.md`.
+Backend: hosted Worker by default (`WorkerEndpoints.baseHost`). Local/self-host:
+see `../worker/AGENTS.md`.
